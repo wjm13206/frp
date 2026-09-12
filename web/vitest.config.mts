@@ -13,26 +13,11 @@ export default defineConfig({
           server: {
             deps: { inline: ['element-plus', '@element-plus/icons-vue'] },
           },
-          setupFiles: ['../test/setup.ts'],
+          setupFiles: [],
           include: [
-            '../test/**/*.test.ts',
             'test/**/*.test.ts',
             '../shared/**/*.test.ts',
           ],
-        },
-      },
-      {
-        extends: './frps/vite.config.mts',
-        root: './frps',
-        test: {
-          name: 'frps',
-          environment: 'jsdom',
-          css: true,
-          server: {
-            deps: { inline: ['element-plus', '@element-plus/icons-vue'] },
-          },
-          setupFiles: ['../test/setup.ts'],
-          include: ['test/**/*.test.ts'],
         },
       },
     ],

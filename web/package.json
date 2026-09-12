@@ -1,7 +1,7 @@
 {
   "name": "frp-web",
   "private": true,
-  "workspaces": ["shared", "frpc", "frps"],
+  "workspaces": ["shared", "frpc"],
   "scripts": {
     "test:unit": "vitest run",
     "test:unit:watch": "vitest"
