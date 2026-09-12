@@ -50,20 +50,20 @@ var (
 )
 
 func init() {
-	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "./frpc.toml", "config file of frpc (support toml/yaml/json, ini is legacy)")
-	rootCmd.PersistentFlags().StringVarP(&cfgDir, "config_dir", "", "", "config directory, run one frpc service for each file in config directory")
-	rootCmd.PersistentFlags().BoolVarP(&showVersion, "version", "v", false, "version of frpc")
-	rootCmd.PersistentFlags().BoolVarP(&strictConfigMode, "strict_config", "", true, "strict config parsing mode, unknown fields will cause an errors")
+	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "./frpc.toml", "frpc 配置文件路径（支持 toml/yaml/json，ini 为旧格式）")
+	rootCmd.PersistentFlags().StringVarP(&cfgDir, "config_dir", "", "", "配置目录，目录下每个文件启动一个 frpc 服务")
+	rootCmd.PersistentFlags().BoolVarP(&showVersion, "version", "v", false, "显示 frpc 版本")
+	rootCmd.PersistentFlags().BoolVarP(&strictConfigMode, "strict_config", "", true, "严格配置解析模式，未知字段将报错")
 
 	rootCmd.PersistentFlags().StringSliceVarP(&allowUnsafe, "allow-unsafe", "", []string{},
-		fmt.Sprintf("allowed unsafe features, one or more of: %s", strings.Join(security.ClientUnsafeFeatures, ", ")))
-	rootCmd.PersistentFlags().StringVarP(&cfgToken, "token", "u", "", "The Token of ChmlFrp")
-	rootCmd.PersistentFlags().StringVarP(&cfgProxyid, "id", "p", "", "The ProxyID of ChmlFrp")
+		fmt.Sprintf("允许的非安全特性，可选值: %s", strings.Join(security.ClientUnsafeFeatures, ", ")))
+	rootCmd.PersistentFlags().StringVarP(&cfgToken, "token", "u", "", "ChmlFrp 的用户令牌 Token")
+	rootCmd.PersistentFlags().StringVarP(&cfgProxyid, "id", "p", "", "ChmlFrp 的隧道 ID")
 }
 
 var rootCmd = &cobra.Command{
 	Use:   "frpc",
-	Short: "frpc is the client of frp (https://github.com/fatedier/frp)",
+	Short: "frpc 是 frp 的客户端（ChmlFrp 映射客户端）",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if showVersion {
 			fmt.Println(version.Full())
@@ -204,7 +204,7 @@ func runMultipleClients(cfgDir string, unsafeFeatures *security.UnsafeFeatures) 
 			defer wg.Done()
 			err := runClient(path, unsafeFeatures)
 			if err != nil {
-				fmt.Printf("frpc service error for config file [%s]\n", path)
+				fmt.Printf("配置文件 [%s] 的 frpc 服务出错\n", path)
 			}
 		}()
 		return nil
@@ -234,8 +234,7 @@ func runClient(cfgFilePath string, unsafeFeatures *security.UnsafeFeatures) erro
 		return err
 	}
 	if result.IsLegacyFormat {
-		fmt.Printf("WARNING: ini format is deprecated and the support will be removed in the future, " +
-			"please use yaml/json/toml format instead!\n")
+		fmt.Printf("警告：ini 格式已过时，未来将移除支持，请使用 toml/yaml/json 格式！\n")
 	}
 
 	return runClientWithAggregator(result, unsafeFeatures, cfgFilePath)
@@ -245,7 +244,7 @@ func runClient(cfgFilePath string, unsafeFeatures *security.UnsafeFeatures) erro
 func runClientWithAggregator(result *config.ClientConfigLoadResult, unsafeFeatures *security.UnsafeFeatures, cfgFilePath string) error {
 	configSource := source.NewConfigSource()
 	if err := configSource.ReplaceAll(result.Proxies, result.Visitors); err != nil {
-		return fmt.Errorf("failed to set config source: %w", err)
+		return fmt.Errorf("设置配置源失败: %w", err)
 	}
 
 	var storeSource *source.StoreSource
@@ -260,7 +259,7 @@ func runClientWithAggregator(result *config.ClientConfigLoadResult, unsafeFeatur
 			Path: storePath,
 		})
 		if err != nil {
-			return fmt.Errorf("failed to create store source: %w", err)
+			return fmt.Errorf("创建存储配置源失败: %w", err)
 		}
 		storeSource = s
 	}
@@ -272,7 +271,7 @@ func runClientWithAggregator(result *config.ClientConfigLoadResult, unsafeFeatur
 
 	proxyCfgs, visitorCfgs, err := aggregator.Load()
 	if err != nil {
-		return fmt.Errorf("failed to load config from sources: %w", err)
+		return fmt.Errorf("从配置源加载配置失败: %w", err)
 	}
 
 	proxyCfgs, visitorCfgs = config.FilterClientConfigurers(result.Common, proxyCfgs, visitorCfgs)
@@ -281,7 +280,7 @@ func runClientWithAggregator(result *config.ClientConfigLoadResult, unsafeFeatur
 
 	warning, err := validation.ValidateAllClientConfig(result.Common, proxyCfgs, visitorCfgs, unsafeFeatures)
 	if warning != nil {
-		fmt.Printf("WARNING: %v\n", warning)
+		fmt.Printf("警告：%v\n", warning)
 	}
 	if err != nil {
 		return err
@@ -299,8 +298,8 @@ func startServiceWithAggregator(
 	log.InitLogger(cfg.Log.To, cfg.Log.Level, int(cfg.Log.MaxDays), cfg.Log.DisablePrintColor)
 
 	if cfgFile != "" {
-		log.Infof("start frpc service for config file [%s] with aggregated configuration", cfgFile)
-		defer log.Infof("frpc service for config file [%s] stopped", cfgFile)
+		log.Infof("正在启动配置文件 [%s] 的 frpc 服务", cfgFile)
+		defer log.Infof("配置文件 [%s] 的 frpc 服务已停止", cfgFile)
 	}
 	svr, err := client.NewService(client.ServiceOptions{
 		Common:                 cfg,

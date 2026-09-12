@@ -78,7 +78,7 @@ type ErrHTTPStatus struct {
 }
 
 func (e ErrHTTPStatus) Error() string {
-	return fmt.Sprintf("ChmlFrp API Error (Status: %d, Text: %s)", e.Status, e.Text)
+	return fmt.Sprintf("ChmlFrp 接口请求失败（状态码：%d，说明：%s）", e.Status, e.Text)
 }
 
 type ResGetCfg struct {

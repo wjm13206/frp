@@ -25,7 +25,7 @@ func newServiceConfigManager(svr *Service) configmgmt.ConfigManager {
 
 func (m *serviceConfigManager) ReloadFromFile(strict bool) error {
 	if m.svr.configFilePath == "" {
-		return fmt.Errorf("%w: frpc has no config file path", configmgmt.ErrInvalidArgument)
+		return fmt.Errorf("%w: frpc 未指定配置文件路径", configmgmt.ErrInvalidArgument)
 	}
 
 	result, err := config.LoadClientConfigResult(m.svr.configFilePath, strict)
@@ -49,13 +49,13 @@ func (m *serviceConfigManager) ReloadFromFile(strict bool) error {
 		return fmt.Errorf("%w: %v", configmgmt.ErrApplyConfig, err)
 	}
 
-	log.Infof("success reload conf")
+	log.Infof("重载配置文件成功")
 	return nil
 }
 
 func (m *serviceConfigManager) ReadConfigFile() (string, error) {
 	if m.svr.configFilePath == "" {
-		return "", fmt.Errorf("%w: frpc has no config file path", configmgmt.ErrInvalidArgument)
+		return "", fmt.Errorf("%w: frpc 未指定配置文件路径", configmgmt.ErrInvalidArgument)
 	}
 
 	content, err := os.ReadFile(m.svr.configFilePath)
@@ -67,7 +67,7 @@ func (m *serviceConfigManager) ReadConfigFile() (string, error) {
 
 func (m *serviceConfigManager) WriteConfigFile(content []byte) error {
 	if len(content) == 0 {
-		return fmt.Errorf("%w: body can't be empty", configmgmt.ErrInvalidArgument)
+		return fmt.Errorf("%w: 请求内容不能为空", configmgmt.ErrInvalidArgument)
 	}
 
 	if err := os.WriteFile(m.svr.configFilePath, content, 0o600); err != nil {
@@ -160,7 +160,7 @@ func (m *serviceConfigManager) ListStoreProxies() ([]v1.ProxyConfigurer, error) 
 
 func (m *serviceConfigManager) GetStoreProxy(name string) (v1.ProxyConfigurer, error) {
 	if name == "" {
-		return nil, fmt.Errorf("%w: proxy name is required", configmgmt.ErrInvalidArgument)
+		return nil, fmt.Errorf("%w: 代理名称不能为空", configmgmt.ErrInvalidArgument)
 	}
 
 	storeSource, err := m.storeSourceOrError()
@@ -170,14 +170,14 @@ func (m *serviceConfigManager) GetStoreProxy(name string) (v1.ProxyConfigurer, e
 
 	cfg := storeSource.GetProxy(name)
 	if cfg == nil {
-		return nil, fmt.Errorf("%w: proxy %q", configmgmt.ErrNotFound, name)
+		return nil, fmt.Errorf("%w: 代理 %q 不存在", configmgmt.ErrNotFound, name)
 	}
 	return cfg, nil
 }
 
 func (m *serviceConfigManager) CreateStoreProxy(cfg v1.ProxyConfigurer) (v1.ProxyConfigurer, error) {
 	if err := m.validateStoreProxyConfigurer(cfg); err != nil {
-		return nil, fmt.Errorf("%w: validation error: %v", configmgmt.ErrInvalidArgument, err)
+		return nil, fmt.Errorf("%w: 校验失败: %v", configmgmt.ErrInvalidArgument, err)
 	}
 
 	name := cfg.GetBaseConfig().Name
@@ -193,23 +193,23 @@ func (m *serviceConfigManager) CreateStoreProxy(cfg v1.ProxyConfigurer) (v1.Prox
 	if err != nil {
 		return nil, err
 	}
-	log.Infof("store: created proxy %q", name)
+	log.Infof("存储：已创建代理 %q", name)
 	return persisted, nil
 }
 
 func (m *serviceConfigManager) UpdateStoreProxy(name string, cfg v1.ProxyConfigurer) (v1.ProxyConfigurer, error) {
 	if name == "" {
-		return nil, fmt.Errorf("%w: proxy name is required", configmgmt.ErrInvalidArgument)
+		return nil, fmt.Errorf("%w: 代理名称不能为空", configmgmt.ErrInvalidArgument)
 	}
 	if cfg == nil {
-		return nil, fmt.Errorf("%w: invalid proxy config: type is required", configmgmt.ErrInvalidArgument)
+		return nil, fmt.Errorf("%w: 代理配置无效：缺少类型", configmgmt.ErrInvalidArgument)
 	}
 	bodyName := cfg.GetBaseConfig().Name
 	if bodyName != name {
-		return nil, fmt.Errorf("%w: proxy name in URL must match name in body", configmgmt.ErrInvalidArgument)
+		return nil, fmt.Errorf("%w: URL 中的代理名称必须与请求体中的名称一致", configmgmt.ErrInvalidArgument)
 	}
 	if err := m.validateStoreProxyConfigurer(cfg); err != nil {
-		return nil, fmt.Errorf("%w: validation error: %v", configmgmt.ErrInvalidArgument, err)
+		return nil, fmt.Errorf("%w: 校验失败: %v", configmgmt.ErrInvalidArgument, err)
 	}
 
 	persisted, err := m.withStoreProxyMutationAndReload(name, func(storeSource *source.StoreSource) error {
@@ -225,13 +225,13 @@ func (m *serviceConfigManager) UpdateStoreProxy(name string, cfg v1.ProxyConfigu
 		return nil, err
 	}
 
-	log.Infof("store: updated proxy %q", name)
+	log.Infof("存储：已更新代理 %q", name)
 	return persisted, nil
 }
 
 func (m *serviceConfigManager) DeleteStoreProxy(name string) error {
 	if name == "" {
-		return fmt.Errorf("%w: proxy name is required", configmgmt.ErrInvalidArgument)
+		return fmt.Errorf("%w: 代理名称不能为空", configmgmt.ErrInvalidArgument)
 	}
 
 	if err := m.withStoreMutationAndReload(func(storeSource *source.StoreSource) error {
@@ -246,7 +246,7 @@ func (m *serviceConfigManager) DeleteStoreProxy(name string) error {
 		return err
 	}
 
-	log.Infof("store: deleted proxy %q", name)
+	log.Infof("存储：已删除代理 %q", name)
 	return nil
 }
 
@@ -260,7 +260,7 @@ func (m *serviceConfigManager) ListStoreVisitors() ([]v1.VisitorConfigurer, erro
 
 func (m *serviceConfigManager) GetStoreVisitor(name string) (v1.VisitorConfigurer, error) {
 	if name == "" {
-		return nil, fmt.Errorf("%w: visitor name is required", configmgmt.ErrInvalidArgument)
+		return nil, fmt.Errorf("%w: 访问者名称不能为空", configmgmt.ErrInvalidArgument)
 	}
 
 	storeSource, err := m.storeSourceOrError()
@@ -270,14 +270,14 @@ func (m *serviceConfigManager) GetStoreVisitor(name string) (v1.VisitorConfigure
 
 	cfg := storeSource.GetVisitor(name)
 	if cfg == nil {
-		return nil, fmt.Errorf("%w: visitor %q", configmgmt.ErrNotFound, name)
+		return nil, fmt.Errorf("%w: 访问者 %q 不存在", configmgmt.ErrNotFound, name)
 	}
 	return cfg, nil
 }
 
 func (m *serviceConfigManager) CreateStoreVisitor(cfg v1.VisitorConfigurer) (v1.VisitorConfigurer, error) {
 	if err := m.validateStoreVisitorConfigurer(cfg); err != nil {
-		return nil, fmt.Errorf("%w: validation error: %v", configmgmt.ErrInvalidArgument, err)
+		return nil, fmt.Errorf("%w: 校验失败: %v", configmgmt.ErrInvalidArgument, err)
 	}
 
 	name := cfg.GetBaseConfig().Name
@@ -294,23 +294,23 @@ func (m *serviceConfigManager) CreateStoreVisitor(cfg v1.VisitorConfigurer) (v1.
 		return nil, err
 	}
 
-	log.Infof("store: created visitor %q", name)
+	log.Infof("存储：已创建访问者 %q", name)
 	return persisted, nil
 }
 
 func (m *serviceConfigManager) UpdateStoreVisitor(name string, cfg v1.VisitorConfigurer) (v1.VisitorConfigurer, error) {
 	if name == "" {
-		return nil, fmt.Errorf("%w: visitor name is required", configmgmt.ErrInvalidArgument)
+		return nil, fmt.Errorf("%w: 访问者名称不能为空", configmgmt.ErrInvalidArgument)
 	}
 	if cfg == nil {
-		return nil, fmt.Errorf("%w: invalid visitor config: type is required", configmgmt.ErrInvalidArgument)
+		return nil, fmt.Errorf("%w: 访问者配置无效：缺少类型", configmgmt.ErrInvalidArgument)
 	}
 	bodyName := cfg.GetBaseConfig().Name
 	if bodyName != name {
-		return nil, fmt.Errorf("%w: visitor name in URL must match name in body", configmgmt.ErrInvalidArgument)
+		return nil, fmt.Errorf("%w: URL 中的访问者名称必须与请求体中的名称一致", configmgmt.ErrInvalidArgument)
 	}
 	if err := m.validateStoreVisitorConfigurer(cfg); err != nil {
-		return nil, fmt.Errorf("%w: validation error: %v", configmgmt.ErrInvalidArgument, err)
+		return nil, fmt.Errorf("%w: 校验失败: %v", configmgmt.ErrInvalidArgument, err)
 	}
 
 	persisted, err := m.withStoreVisitorMutationAndReload(name, func(storeSource *source.StoreSource) error {
@@ -326,13 +326,13 @@ func (m *serviceConfigManager) UpdateStoreVisitor(name string, cfg v1.VisitorCon
 		return nil, err
 	}
 
-	log.Infof("store: updated visitor %q", name)
+	log.Infof("存储：已更新访问者 %q", name)
 	return persisted, nil
 }
 
 func (m *serviceConfigManager) DeleteStoreVisitor(name string) error {
 	if name == "" {
-		return fmt.Errorf("%w: visitor name is required", configmgmt.ErrInvalidArgument)
+		return fmt.Errorf("%w: 访问者名称不能为空", configmgmt.ErrInvalidArgument)
 	}
 
 	if err := m.withStoreMutationAndReload(func(storeSource *source.StoreSource) error {
@@ -347,7 +347,7 @@ func (m *serviceConfigManager) DeleteStoreVisitor(name string) error {
 		return err
 	}
 
-	log.Infof("store: deleted visitor %q", name)
+	log.Infof("存储：已删除访问者 %q", name)
 	return nil
 }
 
@@ -361,7 +361,7 @@ func (m *serviceConfigManager) storeSourceOrError() (*source.StoreSource, error)
 	m.svr.reloadMu.Unlock()
 
 	if storeSource == nil {
-		return nil, fmt.Errorf("%w: store API is disabled", configmgmt.ErrStoreDisabled)
+		return nil, fmt.Errorf("%w: 存储接口未启用", configmgmt.ErrStoreDisabled)
 	}
 	return storeSource, nil
 }
@@ -374,7 +374,7 @@ func (m *serviceConfigManager) withStoreMutationAndReload(
 
 	storeSource := m.svr.storeSource
 	if storeSource == nil {
-		return fmt.Errorf("%w: store API is disabled", configmgmt.ErrStoreDisabled)
+		return fmt.Errorf("%w: 存储接口未启用", configmgmt.ErrStoreDisabled)
 	}
 
 	if err := fn(storeSource); err != nil {

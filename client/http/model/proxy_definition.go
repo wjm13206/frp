@@ -23,21 +23,21 @@ type ProxyDefinition struct {
 
 func (p *ProxyDefinition) Validate(pathName string, isUpdate bool) error {
 	if strings.TrimSpace(p.Name) == "" {
-		return fmt.Errorf("proxy name is required")
+		return fmt.Errorf("代理名称不能为空")
 	}
 	if !IsProxyType(p.Type) {
-		return fmt.Errorf("invalid proxy type: %s", p.Type)
+		return fmt.Errorf("不支持的代理类型: %s", p.Type)
 	}
 	if isUpdate && pathName != "" && pathName != p.Name {
-		return fmt.Errorf("proxy name in URL must match name in body")
+		return fmt.Errorf("URL 中的代理名称必须与请求体中的名称一致")
 	}
 
 	_, blockType, blockCount := p.activeBlock()
 	if blockCount != 1 {
-		return fmt.Errorf("exactly one proxy type block is required")
+		return fmt.Errorf("必须且只能提供一种代理类型配置")
 	}
 	if blockType != p.Type {
-		return fmt.Errorf("proxy type block %q does not match type %q", blockType, p.Type)
+		return fmt.Errorf("代理类型配置 %q 与类型 %q 不一致", blockType, p.Type)
 	}
 	return nil
 }
@@ -45,7 +45,7 @@ func (p *ProxyDefinition) Validate(pathName string, isUpdate bool) error {
 func (p *ProxyDefinition) ToConfigurer() (v1.ProxyConfigurer, error) {
 	block, _, _ := p.activeBlock()
 	if block == nil {
-		return nil, fmt.Errorf("exactly one proxy type block is required")
+		return nil, fmt.Errorf("必须且只能提供一种代理类型配置")
 	}
 
 	cfg := block
@@ -56,7 +56,7 @@ func (p *ProxyDefinition) ToConfigurer() (v1.ProxyConfigurer, error) {
 
 func ProxyDefinitionFromConfigurer(cfg v1.ProxyConfigurer) (ProxyDefinition, error) {
 	if cfg == nil {
-		return ProxyDefinition{}, fmt.Errorf("proxy config is nil")
+		return ProxyDefinition{}, fmt.Errorf("代理配置为空")
 	}
 
 	base := cfg.GetBaseConfig()
@@ -83,7 +83,7 @@ func ProxyDefinitionFromConfigurer(cfg v1.ProxyConfigurer) (ProxyDefinition, err
 	case *v1.XTCPProxyConfig:
 		payload.XTCP = c
 	default:
-		return ProxyDefinition{}, fmt.Errorf("unsupported proxy configurer type %T", cfg)
+		return ProxyDefinition{}, fmt.Errorf("不支持的代理配置类型 %T", cfg)
 	}
 
 	return payload, nil

@@ -123,11 +123,11 @@ func (c *Controller) GetConfig(ctx *httppkg.Context) (any, error) {
 func (c *Controller) PutConfig(ctx *httppkg.Context) (any, error) {
 	body, err := ctx.Body()
 	if err != nil {
-		return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("read request body error: %v", err))
+		return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("读取请求内容失败: %v", err))
 	}
 
 	if len(body) == 0 {
-		return nil, httppkg.NewError(http.StatusBadRequest, "body can't be empty")
+		return nil, httppkg.NewError(http.StatusBadRequest, "请求内容不能为空")
 	}
 
 	if err := c.manager.WriteConfigFile(body); err != nil {
@@ -166,12 +166,12 @@ func (c *Controller) buildProxyStatusResp(status *proxy.WorkingStatus) model.Pro
 func (c *Controller) GetProxyConfig(ctx *httppkg.Context) (any, error) {
 	name := ctx.Param("name")
 	if name == "" {
-		return nil, httppkg.NewError(http.StatusBadRequest, "proxy name is required")
+		return nil, httppkg.NewError(http.StatusBadRequest, "代理名称不能为空")
 	}
 
 	cfg, ok := c.manager.GetProxyConfig(name)
 	if !ok {
-		return nil, httppkg.NewError(http.StatusNotFound, fmt.Sprintf("proxy %q not found", name))
+		return nil, httppkg.NewError(http.StatusNotFound, fmt.Sprintf("代理 %q 不存在", name))
 	}
 
 	payload, err := model.ProxyDefinitionFromConfigurer(cfg)
@@ -185,12 +185,12 @@ func (c *Controller) GetProxyConfig(ctx *httppkg.Context) (any, error) {
 func (c *Controller) GetVisitorConfig(ctx *httppkg.Context) (any, error) {
 	name := ctx.Param("name")
 	if name == "" {
-		return nil, httppkg.NewError(http.StatusBadRequest, "visitor name is required")
+		return nil, httppkg.NewError(http.StatusBadRequest, "访问者名称不能为空")
 	}
 
 	cfg, ok := c.manager.GetVisitorConfig(name)
 	if !ok {
-		return nil, httppkg.NewError(http.StatusNotFound, fmt.Sprintf("visitor %q not found", name))
+		return nil, httppkg.NewError(http.StatusNotFound, fmt.Sprintf("访问者 %q 不存在", name))
 	}
 
 	payload, err := model.VisitorDefinitionFromConfigurer(cfg)
@@ -223,7 +223,7 @@ func (c *Controller) ListStoreProxies(ctx *httppkg.Context) (any, error) {
 func (c *Controller) GetStoreProxy(ctx *httppkg.Context) (any, error) {
 	name := ctx.Param("name")
 	if name == "" {
-		return nil, httppkg.NewError(http.StatusBadRequest, "proxy name is required")
+		return nil, httppkg.NewError(http.StatusBadRequest, "代理名称不能为空")
 	}
 
 	p, err := c.manager.GetStoreProxy(name)
@@ -242,12 +242,12 @@ func (c *Controller) GetStoreProxy(ctx *httppkg.Context) (any, error) {
 func (c *Controller) CreateStoreProxy(ctx *httppkg.Context) (any, error) {
 	body, err := ctx.Body()
 	if err != nil {
-		return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("read body error: %v", err))
+		return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("读取请求内容失败: %v", err))
 	}
 
 	var payload model.ProxyDefinition
 	if err := jsonx.Unmarshal(body, &payload); err != nil {
-		return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("parse JSON error: %v", err))
+		return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("解析 JSON 失败: %v", err))
 	}
 
 	if err := payload.Validate("", false); err != nil {
@@ -272,17 +272,17 @@ func (c *Controller) CreateStoreProxy(ctx *httppkg.Context) (any, error) {
 func (c *Controller) UpdateStoreProxy(ctx *httppkg.Context) (any, error) {
 	name := ctx.Param("name")
 	if name == "" {
-		return nil, httppkg.NewError(http.StatusBadRequest, "proxy name is required")
+		return nil, httppkg.NewError(http.StatusBadRequest, "代理名称不能为空")
 	}
 
 	body, err := ctx.Body()
 	if err != nil {
-		return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("read body error: %v", err))
+		return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("读取请求内容失败: %v", err))
 	}
 
 	var payload model.ProxyDefinition
 	if err := jsonx.Unmarshal(body, &payload); err != nil {
-		return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("parse JSON error: %v", err))
+		return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("解析 JSON 失败: %v", err))
 	}
 
 	if err := payload.Validate(name, true); err != nil {
@@ -307,7 +307,7 @@ func (c *Controller) UpdateStoreProxy(ctx *httppkg.Context) (any, error) {
 func (c *Controller) DeleteStoreProxy(ctx *httppkg.Context) (any, error) {
 	name := ctx.Param("name")
 	if name == "" {
-		return nil, httppkg.NewError(http.StatusBadRequest, "proxy name is required")
+		return nil, httppkg.NewError(http.StatusBadRequest, "代理名称不能为空")
 	}
 
 	if err := c.manager.DeleteStoreProxy(name); err != nil {
@@ -339,7 +339,7 @@ func (c *Controller) ListStoreVisitors(ctx *httppkg.Context) (any, error) {
 func (c *Controller) GetStoreVisitor(ctx *httppkg.Context) (any, error) {
 	name := ctx.Param("name")
 	if name == "" {
-		return nil, httppkg.NewError(http.StatusBadRequest, "visitor name is required")
+		return nil, httppkg.NewError(http.StatusBadRequest, "访问者名称不能为空")
 	}
 
 	v, err := c.manager.GetStoreVisitor(name)
@@ -358,12 +358,12 @@ func (c *Controller) GetStoreVisitor(ctx *httppkg.Context) (any, error) {
 func (c *Controller) CreateStoreVisitor(ctx *httppkg.Context) (any, error) {
 	body, err := ctx.Body()
 	if err != nil {
-		return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("read body error: %v", err))
+		return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("读取请求内容失败: %v", err))
 	}
 
 	var payload model.VisitorDefinition
 	if err := jsonx.Unmarshal(body, &payload); err != nil {
-		return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("parse JSON error: %v", err))
+		return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("解析 JSON 失败: %v", err))
 	}
 
 	if err := payload.Validate("", false); err != nil {
@@ -388,17 +388,17 @@ func (c *Controller) CreateStoreVisitor(ctx *httppkg.Context) (any, error) {
 func (c *Controller) UpdateStoreVisitor(ctx *httppkg.Context) (any, error) {
 	name := ctx.Param("name")
 	if name == "" {
-		return nil, httppkg.NewError(http.StatusBadRequest, "visitor name is required")
+		return nil, httppkg.NewError(http.StatusBadRequest, "访问者名称不能为空")
 	}
 
 	body, err := ctx.Body()
 	if err != nil {
-		return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("read body error: %v", err))
+		return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("读取请求内容失败: %v", err))
 	}
 
 	var payload model.VisitorDefinition
 	if err := jsonx.Unmarshal(body, &payload); err != nil {
-		return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("parse JSON error: %v", err))
+		return nil, httppkg.NewError(http.StatusBadRequest, fmt.Sprintf("解析 JSON 失败: %v", err))
 	}
 
 	if err := payload.Validate(name, true); err != nil {
@@ -423,7 +423,7 @@ func (c *Controller) UpdateStoreVisitor(ctx *httppkg.Context) (any, error) {
 func (c *Controller) DeleteStoreVisitor(ctx *httppkg.Context) (any, error) {
 	name := ctx.Param("name")
 	if name == "" {
-		return nil, httppkg.NewError(http.StatusBadRequest, "visitor name is required")
+		return nil, httppkg.NewError(http.StatusBadRequest, "访问者名称不能为空")
 	}
 
 	if err := c.manager.DeleteStoreVisitor(name); err != nil {

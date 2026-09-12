@@ -170,7 +170,7 @@ func NewService(options ServiceOptions) (*Service, error) {
 	}
 
 	if options.ConfigSourceAggregator == nil {
-		return nil, fmt.Errorf("config source aggregator is required")
+		return nil, fmt.Errorf("缺少配置源聚合器，无法创建客户端服务")
 	}
 
 	configSource := options.ConfigSourceAggregator.ConfigSource()
@@ -178,7 +178,7 @@ func NewService(options ServiceOptions) (*Service, error) {
 
 	proxyCfgs, visitorCfgs, loadErr := options.ConfigSourceAggregator.Load()
 	if loadErr != nil {
-		return nil, fmt.Errorf("failed to load config from aggregator: %w", loadErr)
+		return nil, fmt.Errorf("从配置聚合器加载配置失败: %w", loadErr)
 	}
 	proxyCfgs, visitorCfgs = config.FilterClientConfigurers(options.Common, proxyCfgs, visitorCfgs)
 	proxyCfgs = config.CompleteProxyConfigurers(proxyCfgs)
@@ -231,9 +231,9 @@ func (svr *Service) Run(ctx context.Context) error {
 	if svr.webServer != nil {
 		webServer := svr.webServer
 		go func() {
-			log.Infof("admin server listen on %s", webServer.Address())
+			log.Infof("管理服务正在监听 %s", webServer.Address())
 			if err := webServer.Run(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				log.Warnf("admin server exit with error: %v", err)
+				log.Warnf("管理服务异常退出: %v", err)
 			}
 		}()
 	}
@@ -244,7 +244,7 @@ func (svr *Service) Run(ctx context.Context) error {
 		cancelCause := cancelErr{}
 		_ = errors.As(context.Cause(svr.ctx), &cancelCause)
 		svr.stop()
-		return fmt.Errorf("login to the server failed: %v. With loginFailExit enabled, no additional retries will be attempted", cancelCause.Err)
+		return fmt.Errorf("登录服务器失败: %v，已启用 loginFailExit，不再继续重试", cancelCause.Err)
 	}
 
 	go svr.keepControllerWorking()
@@ -345,7 +345,7 @@ func (svr *Service) loopLoginUntilSuccess(maxInterval time.Duration, firstLoginE
 
 func (svr *Service) tryLogin() error {
 	xl := xlog.FromContextSafe(svr.ctx)
-	xl.Infof("try to connect to server...")
+	xl.Infof("正在连接服务器...")
 	dialer := &controlSessionDialer{
 		ctx:              svr.ctx,
 		common:           svr.common,
@@ -359,7 +359,7 @@ func (svr *Service) tryLogin() error {
 
 	svr.runID = sessionCtx.RunID
 	xl.AddPrefix(xlog.LogPrefix{Name: "runID", Value: svr.runID})
-	xl.Infof("login to server success, get run id [%s]", svr.runID)
+	xl.Infof("登录服务器成功，获取到运行 ID [%s]", svr.runID)
 
 	svr.cfgMu.RLock()
 	proxyCfgs := svr.proxyCfgs
@@ -370,7 +370,7 @@ func (svr *Service) tryLogin() error {
 	if err != nil {
 		sessionCtx.Conn.Close()
 		sessionCtx.Connector.Close()
-		xl.Errorf("new control error: %v", err)
+		xl.Errorf("创建控制连接失败: %v", err)
 		return err
 	}
 	ctl.SetInWorkConnCallback(svr.handleWorkConnCb)
@@ -431,7 +431,7 @@ func (svr *Service) UpdateConfigSource(
 
 	cfgSource := svr.configSource
 	if cfgSource == nil {
-		return fmt.Errorf("config source is not available")
+		return fmt.Errorf("配置源不可用")
 	}
 
 	if err := cfgSource.ReplaceAll(proxyCfgs, visitorCfgs); err != nil {
@@ -531,7 +531,7 @@ func (svr *Service) reloadConfigFromSources() error {
 func (svr *Service) reloadConfigFromSourcesLocked() error {
 	aggregator := svr.aggregator
 	if aggregator == nil {
-		return errors.New("config aggregator is not initialized")
+		return errors.New("配置聚合器尚未初始化 (config aggregator is not initialized)")
 	}
 
 	svr.cfgMu.RLock()
@@ -540,7 +540,7 @@ func (svr *Service) reloadConfigFromSourcesLocked() error {
 
 	proxies, visitors, err := aggregator.Load()
 	if err != nil {
-		return fmt.Errorf("reload config from sources failed: %w", err)
+		return fmt.Errorf("从配置源重载配置失败: %w", err)
 	}
 
 	proxies, visitors = config.FilterClientConfigurers(reloadCommon, proxies, visitors)

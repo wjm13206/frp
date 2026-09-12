@@ -118,7 +118,7 @@ func (ctl *Control) handleReqWorkConn(_ msg.Message) {
 	xl := ctl.xl
 	workConn, err := ctl.connectServer()
 	if err != nil {
-		xl.Warnf("start new connection to server error: %v", err)
+		xl.Warnf("新建到服务器的工作连接失败: %v", err)
 		return
 	}
 
@@ -126,12 +126,12 @@ func (ctl *Control) handleReqWorkConn(_ msg.Message) {
 		RunID: ctl.sessionCtx.RunID,
 	}
 	if err = ctl.sessionCtx.Auth.Setter.SetNewWorkConn(m); err != nil {
-		xl.Warnf("error during NewWorkConn authentication: %v", err)
+		xl.Warnf("工作连接鉴权失败: %v", err)
 		workConn.Close()
 		return
 	}
 	if err = workConn.WriteMsg(m); err != nil {
-		xl.Warnf("work connection write to server error: %v", err)
+		xl.Warnf("向服务器写入工作连接消息失败: %v", err)
 		workConn.Close()
 		return
 	}
@@ -143,7 +143,7 @@ func (ctl *Control) handleReqWorkConn(_ msg.Message) {
 		return
 	}
 	if startMsg.Error != "" {
-		xl.Errorf("StartWorkConn contains error: %s", startMsg.Error)
+		xl.Errorf("启动工作连接被拒绝: %s", startMsg.Error)
 		workConn.Close()
 		return
 	}
@@ -162,9 +162,9 @@ func (ctl *Control) handleNewProxyResp(m msg.Message) {
 	proxyName := naming.StripUserPrefix(ctl.sessionCtx.Common.User, inMsg.ProxyName)
 	err := ctl.pm.StartProxy(proxyName, inMsg.RemoteAddr, inMsg.Error)
 	if err != nil {
-		xl.Warnf("[%s] start error: %v", proxyName, err)
+		xl.Warnf("[%s] 启动失败: %v", proxyName, err)
 	} else {
-		xl.Infof("[%s] start proxy success", proxyName)
+		xl.Infof("[%s] 启动代理成功", proxyName)
 	}
 }
 
@@ -184,7 +184,7 @@ func (ctl *Control) handlePong(m msg.Message) {
 	inMsg := m.(*msg.Pong)
 
 	if inMsg.Error != "" {
-		xl.Errorf("pong message contains error: %s", inMsg.Error)
+		xl.Errorf("心跳响应包含错误: %s", inMsg.Error)
 		ctl.closeSession()
 		return
 	}
@@ -239,7 +239,7 @@ func (ctl *Control) heartbeatWorker() {
 			xl.Debugf("send heartbeat to server")
 			pingMsg := &msg.Ping{}
 			if err := ctl.sessionCtx.Auth.Setter.SetPing(pingMsg); err != nil {
-				xl.Warnf("error during ping authentication: %v, skip sending ping message", err)
+				xl.Warnf("心跳鉴权失败，跳过本次心跳发送: %v", err)
 				return false, err
 			}
 			_ = ctl.msgDispatcher.Send(pingMsg)
@@ -262,7 +262,7 @@ func (ctl *Control) heartbeatWorker() {
 	if ctl.sessionCtx.Common.Transport.HeartbeatInterval > 0 && ctl.sessionCtx.Common.Transport.HeartbeatTimeout > 0 {
 		go wait.Until(func() {
 			if time.Since(ctl.lastPong.Load().(time.Time)) > time.Duration(ctl.sessionCtx.Common.Transport.HeartbeatTimeout)*time.Second {
-				xl.Warnf("heartbeat timeout")
+				xl.Warnf("心跳超时，正在关闭当前会话")
 				ctl.closeSession()
 				return
 			}

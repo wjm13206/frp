@@ -18,21 +18,21 @@ type VisitorDefinition struct {
 
 func (p *VisitorDefinition) Validate(pathName string, isUpdate bool) error {
 	if strings.TrimSpace(p.Name) == "" {
-		return fmt.Errorf("visitor name is required")
+		return fmt.Errorf("访问者名称不能为空")
 	}
 	if !IsVisitorType(p.Type) {
-		return fmt.Errorf("invalid visitor type: %s", p.Type)
+		return fmt.Errorf("不支持的访问者类型: %s", p.Type)
 	}
 	if isUpdate && pathName != "" && pathName != p.Name {
-		return fmt.Errorf("visitor name in URL must match name in body")
+		return fmt.Errorf("URL 中的访问者名称必须与请求体中的名称一致")
 	}
 
 	_, blockType, blockCount := p.activeBlock()
 	if blockCount != 1 {
-		return fmt.Errorf("exactly one visitor type block is required")
+		return fmt.Errorf("必须且只能提供一种访问者类型配置")
 	}
 	if blockType != p.Type {
-		return fmt.Errorf("visitor type block %q does not match type %q", blockType, p.Type)
+		return fmt.Errorf("访问者类型配置 %q 与类型 %q 不一致", blockType, p.Type)
 	}
 	return nil
 }
@@ -40,7 +40,7 @@ func (p *VisitorDefinition) Validate(pathName string, isUpdate bool) error {
 func (p *VisitorDefinition) ToConfigurer() (v1.VisitorConfigurer, error) {
 	block, _, _ := p.activeBlock()
 	if block == nil {
-		return nil, fmt.Errorf("exactly one visitor type block is required")
+		return nil, fmt.Errorf("必须且只能提供一种访问者类型配置")
 	}
 
 	cfg := block
@@ -51,7 +51,7 @@ func (p *VisitorDefinition) ToConfigurer() (v1.VisitorConfigurer, error) {
 
 func VisitorDefinitionFromConfigurer(cfg v1.VisitorConfigurer) (VisitorDefinition, error) {
 	if cfg == nil {
-		return VisitorDefinition{}, fmt.Errorf("visitor config is nil")
+		return VisitorDefinition{}, fmt.Errorf("访问者配置为空")
 	}
 
 	base := cfg.GetBaseConfig()
@@ -68,7 +68,7 @@ func VisitorDefinitionFromConfigurer(cfg v1.VisitorConfigurer) (VisitorDefinitio
 	case *v1.XTCPVisitorConfig:
 		payload.XTCP = c
 	default:
-		return VisitorDefinition{}, fmt.Errorf("unsupported visitor configurer type %T", cfg)
+		return VisitorDefinition{}, fmt.Errorf("不支持的访问者配置类型 %T", cfg)
 	}
 
 	return payload, nil

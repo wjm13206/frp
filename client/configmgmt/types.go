@@ -9,11 +9,11 @@ import (
 )
 
 var (
-	ErrInvalidArgument = errors.New("invalid argument")
-	ErrNotFound        = errors.New("not found")
-	ErrConflict        = errors.New("conflict")
-	ErrStoreDisabled   = errors.New("store disabled")
-	ErrApplyConfig     = errors.New("apply config failed")
+	ErrInvalidArgument = errors.New("参数无效")
+	ErrNotFound        = errors.New("未找到")
+	ErrConflict        = errors.New("已存在冲突")
+	ErrStoreDisabled   = errors.New("存储功能未启用")
+	ErrApplyConfig     = errors.New("应用配置失败")
 )
 
 type ConfigManager interface {
