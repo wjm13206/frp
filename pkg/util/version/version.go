@@ -14,7 +14,7 @@
 
 package version
 
-var version = "0.71.0"
+var version = "ChmlFrp-0.71.0_260911"
 
 func Full() string {
 	return version

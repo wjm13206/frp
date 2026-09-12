@@ -21,6 +21,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,7 +34,6 @@ import (
 	"github.com/fatedier/frp/pkg/config"
 	"github.com/fatedier/frp/pkg/config/source"
 	v1 "github.com/fatedier/frp/pkg/config/v1"
-	"github.com/fatedier/frp/pkg/config/v1/validation"
 	"github.com/fatedier/frp/pkg/msg"
 	"github.com/fatedier/frp/pkg/policy/security"
 	httppkg "github.com/fatedier/frp/pkg/util/http"
@@ -41,7 +41,6 @@ import (
 	netpkg "github.com/fatedier/frp/pkg/util/net"
 	"github.com/fatedier/frp/pkg/util/wait"
 	"github.com/fatedier/frp/pkg/util/xlog"
-	"github.com/fatedier/frp/pkg/vnet"
 )
 
 func init() {
@@ -76,9 +75,6 @@ type ServiceOptions struct {
 	// If it is empty, it means that the configuration file is not used for initialization.
 	// It may be initialized using command line parameters or called directly.
 	ConfigFilePath string
-
-	// ClientSpec is the client specification that control the client behavior.
-	ClientSpec *msg.ClientSpec
 
 	// ConnectorCreator is a function that creates a new connector to make connections to the server.
 	// The Connector shields the underlying connection details, whether it is through TCP or QUIC connection,
@@ -125,8 +121,6 @@ type Service struct {
 	// web server for admin UI and apis
 	webServer *httppkg.Server
 
-	vnetController *vnet.Controller
-
 	cfgMu sync.RWMutex
 	// reloadMu serializes reload transactions to keep reloadCommon and applied
 	// config in sync across concurrent API operations.
@@ -137,7 +131,6 @@ type Service struct {
 	reloadCommon *v1.ClientCommonConfig
 	proxyCfgs    []v1.ProxyConfigurer
 	visitorCfgs  []v1.VisitorConfigurer
-	clientSpec   *msg.ClientSpec
 
 	// aggregator manages multiple configuration sources.
 	// When set, the service watches for config changes and reloads automatically.
@@ -158,6 +151,12 @@ type Service struct {
 
 	connectorCreator func(context.Context, *v1.ClientCommonConfig) Connector
 	handleWorkConnCb func(*v1.ProxyBaseConfig, net.Conn, *msg.StartWorkConn) bool
+
+	// exitErr records the fatal error that caused the service to stop.
+	// Run returns it so the process exits with a non-zero code instead of
+	// calling os.Exit deep inside goroutines (which would kill tests too).
+	exitMu  sync.Mutex
+	exitErr error
 }
 
 func NewService(options ServiceOptions) (*Service, error) {
@@ -206,7 +205,6 @@ func NewService(options ServiceOptions) (*Service, error) {
 		unsafeFeatures:   options.UnsafeFeatures,
 		proxyCfgs:        proxyCfgs,
 		visitorCfgs:      visitorCfgs,
-		clientSpec:       options.ClientSpec,
 		aggregator:       options.ConfigSourceAggregator,
 		configSource:     configSource,
 		storeSource:      storeSource,
@@ -216,9 +214,6 @@ func NewService(options ServiceOptions) (*Service, error) {
 
 	if webServer != nil {
 		webServer.RouteRegister(s.registerRouteHandlers)
-	}
-	if options.Common.VirtualNet.Address != "" {
-		s.vnetController = vnet.NewController(options.Common.VirtualNet)
 	}
 	return s, nil
 }
@@ -231,21 +226,6 @@ func (svr *Service) Run(ctx context.Context) error {
 	// set custom DNSServer
 	if svr.common.DNSServer != "" {
 		netpkg.SetDefaultDNSAddress(svr.common.DNSServer)
-	}
-
-	if svr.vnetController != nil {
-		vnetController := svr.vnetController
-		if err := svr.vnetController.Init(); err != nil {
-			log.Errorf("init virtual network controller error: %v", err)
-			svr.stop()
-			return err
-		}
-		go func() {
-			log.Infof("virtual network controller start...")
-			if err := vnetController.Run(); err != nil && !errors.Is(err, net.ErrClosed) {
-				log.Warnf("virtual network controller exit with error: %v", err)
-			}
-		}()
 	}
 
 	if svr.webServer != nil {
@@ -271,88 +251,85 @@ func (svr *Service) Run(ctx context.Context) error {
 
 	<-svr.ctx.Done()
 	svr.stop()
-	return nil
+	return svr.getExitError()
+}
+
+// exitWithError records a fatal error and stops the service.
+// Run will return the recorded error so the process exits non-zero.
+func (svr *Service) exitWithError(err error) {
+	svr.exitMu.Lock()
+	if svr.exitErr == nil {
+		svr.exitErr = err
+	}
+	svr.exitMu.Unlock()
+	svr.cancel(cancelErr{Err: err})
+}
+
+func (svr *Service) getExitError() error {
+	svr.exitMu.Lock()
+	defer svr.exitMu.Unlock()
+	return svr.exitErr
 }
 
 func (svr *Service) keepControllerWorking() {
-	<-svr.ctl.Done()
+	xl := xlog.FromContextSafe(svr.ctx)
 
-	// There is a situation where the login is successful but due to certain reasons,
-	// the control immediately exits. It is necessary to limit the frequency of reconnection in this case.
-	// The interval for the first three retries in 1 minute will be very short, and then it will increase exponentially.
-	// The maximum interval is 20 seconds.
-	wait.BackoffUntil(func() (bool, error) {
-		// loopLoginUntilSuccess is another layer of loop that will continuously attempt to
-		// login to the server until successful.
-		svr.loopLoginUntilSuccess(20*time.Second, false)
-		if svr.ctl != nil {
-			<-svr.ctl.Done()
-			return false, errors.New("control is closed and try another loop")
+	reconnectDelays := []time.Duration{
+		5 * time.Second,
+		10 * time.Second,
+		20 * time.Second,
+	}
+	reconnectCounts := 0
+
+	for {
+		svr.ctlMu.RLock()
+		ctl := svr.ctl
+		svr.ctlMu.RUnlock()
+		if ctl == nil {
+			return
 		}
-		// If the control is nil, it means that the login failed and the service is also closed.
-		return false, nil
-	}, wait.NewFastBackoffManager(
-		wait.FastBackoffOptions{
-			Duration:        time.Second,
-			Factor:          2,
-			Jitter:          0.1,
-			MaxDuration:     20 * time.Second,
-			FastRetryCount:  3,
-			FastRetryDelay:  200 * time.Millisecond,
-			FastRetryWindow: time.Minute,
-			FastRetryJitter: 0.5,
-		},
-	), true, svr.ctx.Done())
+		<-ctl.Done()
+
+		if svr.ctx.Err() != nil {
+			return
+		}
+
+		if reconnectCounts >= len(reconnectDelays) {
+			err := fmt.Errorf("重连已失败 %d 次，客户端即将退出", reconnectCounts)
+			xl.Errorf("%v", err)
+			svr.exitWithError(err)
+			return
+		}
+
+		wait := reconnectDelays[reconnectCounts]
+		xl.Infof("第 %d 次重连，等待 %v 后尝试连接", reconnectCounts+1, wait)
+		time.Sleep(wait)
+		reconnectCounts++
+
+		xl.Infof("尝试重新连接至服务器")
+		err := svr.tryLogin()
+		if err != nil {
+			xl.Warnf("重连失败: %v", err)
+		} else {
+			reconnectCounts = 0
+		}
+	}
 }
 
 func (svr *Service) loopLoginUntilSuccess(maxInterval time.Duration, firstLoginExit bool) {
 	xl := xlog.FromContextSafe(svr.ctx)
 
 	loginFunc := func() (bool, error) {
-		xl.Infof("try to connect to server...")
-		dialer := &controlSessionDialer{
-			ctx:              svr.ctx,
-			common:           svr.common,
-			auth:             svr.auth,
-			clientSpec:       svr.clientSpec,
-			vnetController:   svr.vnetController,
-			connectorCreator: svr.connectorCreator,
-		}
-		sessionCtx, err := dialer.Dial(svr.runID)
+		err := svr.tryLogin()
 		if err != nil {
-			xl.Warnf("connect to server error: %v", err)
+			xl.Warnf("无法连接至服务器: %v", err)
 			if firstLoginExit {
-				svr.cancel(cancelErr{Err: err})
+				svr.printLoginErrorHint(err)
+				svr.exitWithError(err)
+				return true, nil
 			}
 			return false, err
 		}
-
-		svr.runID = sessionCtx.RunID
-		xl.AddPrefix(xlog.LogPrefix{Name: "runID", Value: svr.runID})
-		xl.Infof("login to server success, get run id [%s]", svr.runID)
-
-		svr.cfgMu.RLock()
-		proxyCfgs := svr.proxyCfgs
-		visitorCfgs := svr.visitorCfgs
-		svr.cfgMu.RUnlock()
-
-		ctl, err := NewControl(svr.ctx, sessionCtx)
-		if err != nil {
-			sessionCtx.Conn.Close()
-			sessionCtx.Connector.Close()
-			xl.Errorf("new control error: %v", err)
-			return false, err
-		}
-		ctl.SetInWorkConnCallback(svr.handleWorkConnCb)
-
-		ctl.Run(proxyCfgs, visitorCfgs)
-		// close and replace previous control
-		svr.ctlMu.Lock()
-		if svr.ctl != nil {
-			svr.ctl.Close()
-		}
-		svr.ctl = ctl
-		svr.ctlMu.Unlock()
 		return true, nil
 	}
 
@@ -364,6 +341,66 @@ func (svr *Service) loopLoginUntilSuccess(maxInterval time.Duration, firstLoginE
 			Jitter:      0.1,
 			MaxDuration: maxInterval,
 		}), true, svr.ctx.Done())
+}
+
+func (svr *Service) tryLogin() error {
+	xl := xlog.FromContextSafe(svr.ctx)
+	xl.Infof("try to connect to server...")
+	dialer := &controlSessionDialer{
+		ctx:              svr.ctx,
+		common:           svr.common,
+		auth:             svr.auth,
+		connectorCreator: svr.connectorCreator,
+	}
+	sessionCtx, err := dialer.Dial(svr.runID)
+	if err != nil {
+		return err
+	}
+
+	svr.runID = sessionCtx.RunID
+	xl.AddPrefix(xlog.LogPrefix{Name: "runID", Value: svr.runID})
+	xl.Infof("login to server success, get run id [%s]", svr.runID)
+
+	svr.cfgMu.RLock()
+	proxyCfgs := svr.proxyCfgs
+	visitorCfgs := svr.visitorCfgs
+	svr.cfgMu.RUnlock()
+
+	ctl, err := NewControl(svr.ctx, sessionCtx)
+	if err != nil {
+		sessionCtx.Conn.Close()
+		sessionCtx.Connector.Close()
+		xl.Errorf("new control error: %v", err)
+		return err
+	}
+	ctl.SetInWorkConnCallback(svr.handleWorkConnCb)
+
+	ctl.Run(proxyCfgs, visitorCfgs)
+	// close and replace previous control
+	svr.ctlMu.Lock()
+	if svr.ctl != nil {
+		svr.ctl.Close()
+	}
+	svr.ctl = ctl
+	svr.ctlMu.Unlock()
+	return nil
+}
+
+func (svr *Service) printLoginErrorHint(err error) {
+	xl := xlog.FromContextSafe(svr.ctx)
+	if strings.Contains(err.Error(), "i/o timeout") || strings.Contains(err.Error(), "EOF") {
+		xl.Warnf("请尝试将配置文件中tls_enable = false改为tls_enable = true再启动，如果依旧无法启动，则为上层防火墙拦截，请更换设备。")
+	} else if strings.Contains(err.Error(), "invalid port") {
+		xl.Warnf("无效的节点端口，如果您没有随意更改配置文件，请前往交流群提交问题。您可以暂时更换节点解决")
+	} else if strings.Contains(err.Error(), "token in login doesn't match token from configuration") {
+		xl.Warnf("节点TOKEN错误，如果您没有随意更改配置文件，请前往交流群提交问题。您可以暂时更换节点解决")
+	} else if strings.Contains(err.Error(), "i/o deadline reached") {
+		xl.Warnf("请尝试将配置文件中tls_enable = false改为tls_enable = true再启动，如果依旧无法启动，则为上层防火墙拦截，请更换设备。或更换节点。")
+	} else if strings.Contains(err.Error(), "dial tcp 127.0.0.1:7000: connectex: No connection could be made because the target machine actively refused it.") {
+		xl.Warnf("您尚未更改配置文件，请更改配置文件(frpc.ini)后再启动隧道。更改完后需要按Ctrl+S保存。")
+	} else if strings.Contains(err.Error(), "connectex: No connection could be made because the target machine actively refused it.") {
+		xl.Warnf("此节点可能已离线，或您的网络连不上此节点，请更换节点后再启动。如若更换节点无用，请加入交流群询问。")
+	}
 }
 
 func (svr *Service) UpdateAllConfigurer(proxyCfgs []v1.ProxyConfigurer, visitorCfgs []v1.VisitorConfigurer) error {
@@ -441,10 +478,6 @@ func (svr *Service) stop() {
 		svr.webServer.Close()
 		svr.webServer = nil
 	}
-	if svr.vnetController != nil {
-		_ = svr.vnetController.Stop()
-		svr.vnetController = nil
-	}
 }
 
 func (svr *Service) getProxyStatus(name string) (*proxy.WorkingStatus, bool) {
@@ -511,13 +544,6 @@ func (svr *Service) reloadConfigFromSourcesLocked() error {
 	proxies, visitors = config.FilterClientConfigurers(reloadCommon, proxies, visitors)
 	proxies = config.CompleteProxyConfigurers(proxies)
 	visitors = config.CompleteVisitorConfigurers(visitors)
-	requirements := validation.GetClientConfigRequirements(reloadCommon, proxies, visitors)
-	if svr.vnetController == nil && requirements.VirtualNet {
-		return errors.New(
-			"VirtualNet-dependent configuration requires a VirtualNet runtime enabled at startup; " +
-				"restart frpc after configuring featureGates.VirtualNet and virtualNet.address",
-		)
-	}
 
 	// Atomically replace the entire configuration
 	if err := svr.UpdateAllConfigurer(proxies, visitors); err != nil {

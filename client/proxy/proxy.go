@@ -36,7 +36,6 @@ import (
 	"github.com/fatedier/frp/pkg/util/limit"
 	netpkg "github.com/fatedier/frp/pkg/util/net"
 	"github.com/fatedier/frp/pkg/util/xlog"
-	"github.com/fatedier/frp/pkg/vnet"
 )
 
 var proxyFactoryRegistry = map[reflect.Type]func(*BaseProxy, v1.ProxyConfigurer) Proxy{}
@@ -60,8 +59,6 @@ func NewProxy(
 	clientCfg *v1.ClientCommonConfig,
 	encryptionKey []byte,
 	msgTransporter transport.MessageTransporter,
-	vnetController *vnet.Controller,
-	udpPacketCodec string,
 ) (pxy Proxy) {
 	var limiter *rate.Limiter
 	limitBytes := pxyConf.GetBaseConfig().Transport.BandwidthLimit.Bytes()
@@ -75,10 +72,8 @@ func NewProxy(
 		encryptionKey:  encryptionKey,
 		limiter:        limiter,
 		msgTransporter: msgTransporter,
-		vnetController: vnetController,
 		xl:             xlog.FromContextSafe(ctx),
 		ctx:            ctx,
-		udpPacketCodec: udpPacketCodec,
 	}
 
 	factory := proxyFactoryRegistry[reflect.TypeOf(pxyConf)]
@@ -93,24 +88,21 @@ type BaseProxy struct {
 	clientCfg      *v1.ClientCommonConfig
 	encryptionKey  []byte
 	msgTransporter transport.MessageTransporter
-	vnetController *vnet.Controller
 	limiter        *rate.Limiter
 	// proxyPlugin is used to handle connections instead of dialing to local service.
 	// It's only validate for TCP protocol now.
 	proxyPlugin        plugin.Plugin
 	inWorkConnCallback func(*v1.ProxyBaseConfig, net.Conn, *msg.StartWorkConn) /* continue */ bool
 
-	mu             sync.RWMutex
-	xl             *xlog.Logger
-	ctx            context.Context
-	udpPacketCodec string
+	mu  sync.RWMutex
+	xl  *xlog.Logger
+	ctx context.Context
 }
 
 func (pxy *BaseProxy) Run() error {
 	if pxy.baseCfg.Plugin.Type != "" {
 		p, err := plugin.Create(pxy.baseCfg.Plugin.Type, plugin.PluginContext{
-			Name:           pxy.baseCfg.Name,
-			VnetController: pxy.vnetController,
+			Name: pxy.baseCfg.Name,
 		}, pxy.baseCfg.Plugin.ClientPluginOptions)
 		if err != nil {
 			return err

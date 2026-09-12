@@ -29,6 +29,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/fatedier/frp/client"
+	"github.com/fatedier/frp/pkg/api"
 	"github.com/fatedier/frp/pkg/config"
 	"github.com/fatedier/frp/pkg/config/source"
 	v1 "github.com/fatedier/frp/pkg/config/v1"
@@ -41,6 +42,8 @@ import (
 var (
 	cfgFile          string
 	cfgDir           string
+	cfgToken         string
+	cfgProxyid       string
 	showVersion      bool
 	strictConfigMode bool
 	allowUnsafe      []string
@@ -54,6 +57,8 @@ func init() {
 
 	rootCmd.PersistentFlags().StringSliceVarP(&allowUnsafe, "allow-unsafe", "", []string{},
 		fmt.Sprintf("allowed unsafe features, one or more of: %s", strings.Join(security.ClientUnsafeFeatures, ", ")))
+	rootCmd.PersistentFlags().StringVarP(&cfgToken, "token", "u", "", "The Token of ChmlFrp")
+	rootCmd.PersistentFlags().StringVarP(&cfgProxyid, "id", "p", "", "The ProxyID of ChmlFrp")
 }
 
 var rootCmd = &cobra.Command{
@@ -65,6 +70,8 @@ var rootCmd = &cobra.Command{
 			return nil
 		}
 
+		log.Infof("欢迎使用ChmlFrp映射客户端!")
+
 		unsafeFeatures := security.NewUnsafeFeatures(allowUnsafe)
 
 		// If cfgDir is not empty, run multiple frpc service for each config file in cfgDir.
@@ -72,6 +79,41 @@ var rootCmd = &cobra.Command{
 		if cfgDir != "" {
 			_ = runMultipleClients(cfgDir, unsafeFeatures)
 			return nil
+		}
+
+		// 如果提供了 ChmlFrp Token 和 ProxyID，从 API 获取配置文件
+		if cfgToken != "" && cfgProxyid != "" {
+			log.Infof("从ChmlFrp API获取配置文件...")
+			s, err := api.NewService("https://cf-v2.uapis.cn/cfg")
+			if err != nil {
+				log.Warnf("初始化API服务失败，错误: %s", err)
+			}
+
+			var ids []string
+			if strings.Contains(cfgProxyid, ",") {
+				ids = strings.Split(cfgProxyid, ",")
+			} else {
+				ids = []string{cfgProxyid}
+			}
+
+			cfg, err := s.EZStartGetCfg(cfgToken, strings.Join(ids, ","))
+			if err != nil {
+				log.Warnf("获取配置文件失败，err: %s", err)
+				os.Exit(1)
+			}
+
+			file, err := os.OpenFile(cfgFile, os.O_RDWR|os.O_TRUNC|os.O_CREATE, 0777)
+			if err != nil {
+				log.Warnf("打开文件失败，错误: %s", err)
+				os.Exit(1)
+			}
+			_, err = file.WriteString(cfg)
+			file.Close()
+			if err != nil {
+				log.Warnf("写入配置文件失败, Err: %s", err)
+				os.Exit(1)
+			}
+			log.Infof("已写入配置文件: %s", cfgFile)
 		}
 
 		// Do not show command usage here.

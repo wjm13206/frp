@@ -32,7 +32,6 @@ import (
 	"github.com/fatedier/frp/pkg/naming"
 	"github.com/fatedier/frp/pkg/transport"
 	"github.com/fatedier/frp/pkg/util/xlog"
-	"github.com/fatedier/frp/pkg/vnet"
 )
 
 const (
@@ -75,8 +74,6 @@ type Wrapper struct {
 	handler event.Handler
 
 	msgTransporter transport.MessageTransporter
-	// vnet controller
-	vnetController *vnet.Controller
 
 	health           uint32
 	lastSendStartMsg time.Time
@@ -98,8 +95,6 @@ func NewWrapper(
 	encryptionKey []byte,
 	eventHandler event.Handler,
 	msgTransporter transport.MessageTransporter,
-	vnetController *vnet.Controller,
-	udpPacketCodec string,
 ) *Wrapper {
 	baseInfo := cfg.GetBaseConfig()
 	xl := xlog.FromContextSafe(ctx).Spawn().AppendPrefix(baseInfo.Name)
@@ -114,7 +109,6 @@ func NewWrapper(
 		healthNotifyCh: make(chan struct{}),
 		handler:        eventHandler,
 		msgTransporter: msgTransporter,
-		vnetController: vnetController,
 		xl:             xl,
 		ctx:            xlog.NewContext(ctx, xl),
 		wireName:       naming.AddUserPrefix(clientCfg.User, baseInfo.Name),
@@ -128,7 +122,7 @@ func NewWrapper(
 		xl.Tracef("enable health check monitor")
 	}
 
-	pw.pxy = NewProxy(pw.ctx, pw.Cfg, clientCfg, encryptionKey, pw.msgTransporter, pw.vnetController, udpPacketCodec)
+	pw.pxy = NewProxy(pw.ctx, pw.Cfg, clientCfg, encryptionKey, pw.msgTransporter)
 	return pw
 }
 
@@ -145,17 +139,15 @@ func (pw *Wrapper) SetRunningStatus(remoteAddr string, respErr string) error {
 
 	pw.RemoteAddr = remoteAddr
 	if respErr != "" {
-		pw.Phase = ProxyPhaseStartErr
+		pw.Phase = ProxyPhaseClosed
 		pw.Err = respErr
-		pw.lastStartErr = time.Now()
 		return fmt.Errorf("%s", pw.Err)
 	}
 
 	if err := pw.pxy.Run(); err != nil {
 		pw.close()
-		pw.Phase = ProxyPhaseStartErr
+		pw.Phase = ProxyPhaseClosed
 		pw.Err = err.Error()
-		pw.lastStartErr = time.Now()
 		return err
 	}
 

@@ -29,7 +29,6 @@ import (
 	"github.com/fatedier/frp/pkg/transport"
 	"github.com/fatedier/frp/pkg/util/wait"
 	"github.com/fatedier/frp/pkg/util/xlog"
-	"github.com/fatedier/frp/pkg/vnet"
 )
 
 type SessionContext struct {
@@ -45,10 +44,6 @@ type SessionContext struct {
 	Auth *auth.ClientAuth
 	// Connector is used to create message connections to frps.
 	Connector MessageConnector
-	// Virtual net controller
-	VnetController *vnet.Controller
-	// UDPPacketCodec is immutable for the lifetime of this negotiated session.
-	UDPPacketCodec string
 }
 
 type Control struct {
@@ -99,11 +94,9 @@ func NewControl(ctx context.Context, sessionCtx *SessionContext) (*Control, erro
 		sessionCtx.Common,
 		sessionCtx.Auth.EncryptionKey(),
 		ctl.msgTransporter,
-		sessionCtx.VnetController,
-		sessionCtx.UDPPacketCodec,
 	)
 	ctl.vm = visitor.NewManager(ctl.ctx, sessionCtx.RunID, sessionCtx.Common,
-		ctl.connectServer, ctl.msgTransporter, sessionCtx.VnetController, sessionCtx.UDPPacketCodec)
+		ctl.connectServer, ctl.msgTransporter)
 	return ctl, nil
 }
 

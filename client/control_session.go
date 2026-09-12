@@ -18,30 +18,23 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"runtime"
 	"time"
 
-	"github.com/samber/lo"
-
 	"github.com/fatedier/frp/pkg/auth"
 	v1 "github.com/fatedier/frp/pkg/config/v1"
 	"github.com/fatedier/frp/pkg/msg"
-	"github.com/fatedier/frp/pkg/proto/wire"
 	netpkg "github.com/fatedier/frp/pkg/util/net"
 	"github.com/fatedier/frp/pkg/util/version"
-	"github.com/fatedier/frp/pkg/vnet"
 )
 
 type controlSessionDialer struct {
 	ctx context.Context
 
-	common         *v1.ClientCommonConfig
-	auth           *auth.ClientAuth
-	clientSpec     *msg.ClientSpec
-	vnetController *vnet.Controller
+	common *v1.ClientCommonConfig
+	auth   *auth.ClientAuth
 
 	connectorCreator func(context.Context, *v1.ClientCommonConfig) Connector
 }
@@ -74,32 +67,26 @@ func (d *controlSessionDialer) Dial(previousRunID string) (*SessionContext, erro
 		return nil, err
 	}
 
-	loginResult, err := d.exchangeLogin(conn, loginMsg)
+	loginRespMsg, err := d.exchangeLogin(conn, loginMsg)
 	if err != nil {
 		return nil, err
 	}
-	loginRespMsg := loginResult.resp
 	if loginRespMsg.Error != "" {
 		return nil, errors.New(loginRespMsg.Error)
 	}
 
-	var controlRW io.ReadWriter = conn
-	if d.clientSpec == nil || d.clientSpec.Type != "ssh-tunnel" {
-		controlRW, err = d.newControlReadWriter(conn, loginResult.crypto)
-		if err != nil {
-			return nil, fmt.Errorf("create control crypto read writer: %w", err)
-		}
+	controlRW, err := netpkg.NewCryptoReadWriter(conn, d.auth.EncryptionKey())
+	if err != nil {
+		return nil, fmt.Errorf("create control crypto read writer: %w", err)
 	}
 
 	success = true
 	return &SessionContext{
-		Common:         d.common,
-		RunID:          loginRespMsg.RunID,
-		Conn:           msg.NewConn(conn, msg.NewReadWriter(controlRW, d.common.Transport.WireProtocol)),
-		Auth:           d.auth,
-		Connector:      newMessageConnector(connector, d.common.Transport.WireProtocol),
-		VnetController: d.vnetController,
-		UDPPacketCodec: loginResult.udpPacketCodec,
+		Common:    d.common,
+		RunID:     loginRespMsg.RunID,
+		Conn:      msg.NewConn(conn, msg.NewReadWriter(controlRW, d.common.Transport.WireProtocol)),
+		Auth:      d.auth,
+		Connector: newMessageConnector(connector, d.common.Transport.WireProtocol),
 	}, nil
 }
 
@@ -111,14 +98,10 @@ func (d *controlSessionDialer) buildLoginMsg(previousRunID string) (*msg.Login, 
 		Hostname:  hostname,
 		PoolCount: d.common.Transport.PoolCount,
 		User:      d.common.User,
-		ClientID:  d.common.ClientID,
 		Version:   version.Full(),
 		Timestamp: time.Now().Unix(),
 		RunID:     previousRunID,
 		Metas:     d.common.Metadatas,
-	}
-	if d.clientSpec != nil {
-		loginMsg.ClientSpec = *d.clientSpec
 	}
 
 	if err := d.auth.Setter.SetLogin(loginMsg); err != nil {
@@ -127,43 +110,8 @@ func (d *controlSessionDialer) buildLoginMsg(previousRunID string) (*msg.Login, 
 	return loginMsg, nil
 }
 
-type loginExchangeResult struct {
-	resp           *msg.LoginResp
-	crypto         *wire.CryptoContext
-	udpPacketCodec string
-}
-
-func (d *controlSessionDialer) exchangeLogin(conn net.Conn, loginMsg *msg.Login) (*loginExchangeResult, error) {
+func (d *controlSessionDialer) exchangeLogin(conn net.Conn, loginMsg *msg.Login) (*msg.LoginResp, error) {
 	rw := msg.NewV1ReadWriter(conn)
-	var wireConn *wire.Conn
-	var clientHello wire.ClientHello
-	var clientHelloPayload []byte
-
-	if d.common.Transport.WireProtocol == wire.ProtocolV2 {
-		if err := wire.WriteMagic(conn); err != nil {
-			return nil, err
-		}
-
-		wireConn = wire.NewConn(conn)
-		rw = msg.NewV2ReadWriterWithConn(wireConn)
-		var err error
-		clientHello, err = wire.NewClientHello(wire.BootstrapInfo{
-			Transport: d.common.Transport.Protocol,
-			TLS:       lo.FromPtr(d.common.Transport.TLS.Enable) || d.common.Transport.Protocol == "wss" || d.common.Transport.Protocol == "quic",
-			TCPMux:    lo.FromPtr(d.common.Transport.TCPMux),
-		})
-		if err != nil {
-			return nil, err
-		}
-		clientHelloFrame, err := wire.NewJSONFrame(wire.FrameTypeClientHello, clientHello)
-		if err != nil {
-			return nil, err
-		}
-		if err := wireConn.WriteFrame(clientHelloFrame); err != nil {
-			return nil, err
-		}
-		clientHelloPayload = clientHelloFrame.Payload
-	}
 	if err := rw.WriteMsg(loginMsg); err != nil {
 		return nil, err
 	}
@@ -173,53 +121,9 @@ func (d *controlSessionDialer) exchangeLogin(conn net.Conn, loginMsg *msg.Login)
 		_ = conn.SetReadDeadline(time.Time{})
 	}()
 
-	var cryptoContext *wire.CryptoContext
-	var udpPacketCodec string
-	if wireConn != nil {
-		serverHelloFrame, err := wireConn.ReadFrame()
-		if err != nil {
-			return nil, err
-		}
-		if serverHelloFrame.Type != wire.FrameTypeServerHello {
-			return nil, fmt.Errorf("unexpected frame type %d, want %d", serverHelloFrame.Type, wire.FrameTypeServerHello)
-		}
-		var serverHello wire.ServerHello
-		if err := wireConn.UnmarshalFrame(serverHelloFrame, &serverHello); err != nil {
-			return nil, err
-		}
-		if serverHello.Error != "" {
-			return nil, errors.New(serverHello.Error)
-		}
-		cryptoContext, err = wire.NewClientCryptoContext(clientHelloPayload, serverHelloFrame.Payload)
-		if err != nil {
-			return nil, err
-		}
-		udpPacketCodec = serverHello.Selected.Message.UDPPacketCodec
-	}
-
 	var loginRespMsg msg.LoginResp
 	if err := rw.ReadMsgInto(&loginRespMsg); err != nil {
 		return nil, err
 	}
-	return &loginExchangeResult{
-		resp:           &loginRespMsg,
-		crypto:         cryptoContext,
-		udpPacketCodec: udpPacketCodec,
-	}, nil
-}
-
-func (d *controlSessionDialer) newControlReadWriter(conn net.Conn, cryptoContext *wire.CryptoContext) (io.ReadWriter, error) {
-	if d.common.Transport.WireProtocol == wire.ProtocolV2 {
-		if cryptoContext == nil {
-			return nil, errors.New("missing v2 crypto negotiation")
-		}
-		return netpkg.NewAEADCryptoReadWriter(
-			conn,
-			d.auth.EncryptionKey(),
-			netpkg.AEADCryptoRoleClient,
-			cryptoContext.Algorithm,
-			cryptoContext.TranscriptHash,
-		)
-	}
-	return netpkg.NewCryptoReadWriter(conn, d.auth.EncryptionKey())
+	return &loginRespMsg, nil
 }

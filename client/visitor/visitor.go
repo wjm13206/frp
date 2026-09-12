@@ -32,7 +32,6 @@ import (
 	netpkg "github.com/fatedier/frp/pkg/util/net"
 	"github.com/fatedier/frp/pkg/util/util"
 	"github.com/fatedier/frp/pkg/util/xlog"
-	"github.com/fatedier/frp/pkg/vnet"
 )
 
 // Helper wraps some functions for visitor to use.
@@ -44,21 +43,8 @@ type Helper interface {
 	// MsgTransporter returns the message transporter that is used to send and receive messages
 	// to the frp server through the controller.
 	MsgTransporter() transport.MessageTransporter
-	// VNetController returns the vnet controller that is used to manage the virtual network.
-	VNetController() *vnet.Controller
 	// RunID returns the run id of current controller.
 	RunID() string
-}
-
-type udpPacketCodecProvider interface {
-	UDPPacketCodec() string
-}
-
-func udpPacketCodecFromHelper(helper Helper) string {
-	if provider, ok := helper.(udpPacketCodecProvider); ok {
-		return provider.UDPPacketCodec()
-	}
-	return ""
 }
 
 // Visitor is used for forward traffics from local port tot remote service.
@@ -87,9 +73,8 @@ func NewVisitor(
 		p, err := plugin.Create(
 			cfg.GetBaseConfig().Plugin.Type,
 			plugin.PluginContext{
-				Name:           cfg.GetBaseConfig().Name,
-				Ctx:            ctx,
-				VnetController: helper.VNetController(),
+				Name: cfg.GetBaseConfig().Name,
+				Ctx:  ctx,
 				SendConnToVisitor: func(conn net.Conn) {
 					_ = baseVisitor.AcceptConn(conn)
 				},
