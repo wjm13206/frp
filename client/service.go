@@ -388,17 +388,19 @@ func (svr *Service) tryLogin() error {
 
 func (svr *Service) printLoginErrorHint(err error) {
 	xl := xlog.FromContextSafe(svr.ctx)
-	if strings.Contains(err.Error(), "i/o timeout") || strings.Contains(err.Error(), "EOF") {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "i/o timeout") || strings.Contains(msg, "EOF"):
 		xl.Warnf("请尝试将配置文件中tls_enable = false改为tls_enable = true再启动，如果依旧无法启动，则为上层防火墙拦截，请更换设备。")
-	} else if strings.Contains(err.Error(), "invalid port") {
+	case strings.Contains(msg, "invalid port"):
 		xl.Warnf("无效的节点端口，如果您没有随意更改配置文件，请前往交流群提交问题。您可以暂时更换节点解决")
-	} else if strings.Contains(err.Error(), "token in login doesn't match token from configuration") {
+	case strings.Contains(msg, "token in login doesn't match token from configuration"):
 		xl.Warnf("节点TOKEN错误，如果您没有随意更改配置文件，请前往交流群提交问题。您可以暂时更换节点解决")
-	} else if strings.Contains(err.Error(), "i/o deadline reached") {
+	case strings.Contains(msg, "i/o deadline reached"):
 		xl.Warnf("请尝试将配置文件中tls_enable = false改为tls_enable = true再启动，如果依旧无法启动，则为上层防火墙拦截，请更换设备。或更换节点。")
-	} else if strings.Contains(err.Error(), "dial tcp 127.0.0.1:7000: connectex: No connection could be made because the target machine actively refused it.") {
+	case strings.Contains(msg, "dial tcp 127.0.0.1:7000: connectex: No connection could be made because the target machine actively refused it."):
 		xl.Warnf("您尚未更改配置文件，请更改配置文件(frpc.ini)后再启动隧道。更改完后需要按Ctrl+S保存。")
-	} else if strings.Contains(err.Error(), "connectex: No connection could be made because the target machine actively refused it.") {
+	case strings.Contains(msg, "connectex: No connection could be made because the target machine actively refused it."):
 		xl.Warnf("此节点可能已离线，或您的网络连不上此节点，请更换节点后再启动。如若更换节点无用，请加入交流群询问。")
 	}
 }

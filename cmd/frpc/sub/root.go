@@ -102,7 +102,7 @@ var rootCmd = &cobra.Command{
 				os.Exit(1)
 			}
 
-			file, err := os.OpenFile(cfgFile, os.O_RDWR|os.O_TRUNC|os.O_CREATE, 0777)
+			file, err := os.OpenFile(cfgFile, os.O_RDWR|os.O_TRUNC|os.O_CREATE, 0o777)
 			if err != nil {
 				log.Warnf("打开文件失败，错误: %s", err)
 				os.Exit(1)
