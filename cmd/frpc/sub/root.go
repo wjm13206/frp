@@ -50,7 +50,7 @@ var (
 )
 
 func init() {
-	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "./frpc.ini", "config file of frpc")
+	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "./frpc.toml", "config file of frpc (support toml/yaml/json, ini is legacy)")
 	rootCmd.PersistentFlags().StringVarP(&cfgDir, "config_dir", "", "", "config directory, run one frpc service for each file in config directory")
 	rootCmd.PersistentFlags().BoolVarP(&showVersion, "version", "v", false, "version of frpc")
 	rootCmd.PersistentFlags().BoolVarP(&strictConfigMode, "strict_config", "", true, "strict config parsing mode, unknown fields will cause an errors")
@@ -79,6 +79,20 @@ var rootCmd = &cobra.Command{
 		if cfgDir != "" {
 			_ = runMultipleClients(cfgDir, unsafeFeatures)
 			return nil
+		}
+
+		// 未显式指定 -c 时，自动发现 toml/yaml/json/ini（兼容 Frpc.toml 等大小写变体）。
+		cfgFile = resolveConfigFile(cmd, cfgFile)
+
+		// 非 API 拉取模式下，配置文件不存在时给出友好提示，而不是直接报 open 错误。
+		if cfgToken == "" || cfgProxyid == "" {
+			if _, err := os.Stat(cfgFile); err != nil && os.IsNotExist(err) {
+				fmt.Printf("找不到配置文件 [%s]，已自动查找 %s，"+
+					"请确认目录下存在 frpc.toml（或 Frpc.toml）/frpc.yaml/frpc.yml/frpc.json/frpc.ini，"+
+					"或用 -c 指定配置文件路径\n",
+					cfgFile, strings.Join(defaultConfigCandidates(), ", "))
+				os.Exit(1)
+			}
 		}
 
 		// 如果提供了 ChmlFrp Token 和 ProxyID，从 API 获取配置文件
@@ -124,6 +138,58 @@ var rootCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+// defaultConfigCandidates 返回未指定 -c 时的自动发现顺序，toml 优先，ini 兜底。
+// 包含 Frpc.toml 等大小写变体以兼容 Windows 用户习惯及 Linux 大小写敏感文件系统。
+func defaultConfigCandidates() []string {
+	return []string{
+		"./frpc.toml",
+		"./Frpc.toml",
+		"./FRPC.toml",
+		"./frpc.yaml",
+		"./frpc.yml",
+		"./frpc.json",
+		"./frpc.ini",
+		"./Frpc.ini",
+	}
+}
+
+func configFlagChanged(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return false
+	}
+	if cmd.Flags().Changed("config") {
+		return true
+	}
+	if cmd.PersistentFlags().Changed("config") {
+		return true
+	}
+	return false
+}
+
+// resolveConfigFile 在用户未显式指定 -c 且默认文件不存在时，自动查找同目录下的
+// frpc.toml/Frpc.toml/yaml/yml/json/ini，找到即返回，未找到则返回原路径由调用方报错。
+func resolveConfigFile(cmd *cobra.Command, cfg string) string {
+	if configFlagChanged(cmd) {
+		return cfg
+	}
+	if cfg == "" {
+		cfg = "./frpc.toml"
+	}
+	if _, err := os.Stat(cfg); err == nil {
+		return cfg
+	}
+	for _, candidate := range defaultConfigCandidates() {
+		if candidate == cfg {
+			continue
+		}
+		if _, err := os.Stat(candidate); err == nil {
+			log.Infof("未指定 -c，自动使用配置文件: %s", candidate)
+			return candidate
+		}
+	}
+	return cfg
 }
 
 func runMultipleClients(cfgDir string, unsafeFeatures *security.UnsafeFeatures) error {

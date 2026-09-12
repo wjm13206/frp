@@ -399,7 +399,7 @@ func (svr *Service) printLoginErrorHint(err error) {
 	case strings.Contains(msg, "i/o deadline reached"):
 		xl.Warnf("请尝试将配置文件中tls_enable = false改为tls_enable = true再启动，如果依旧无法启动，则为上层防火墙拦截，请更换设备。或更换节点。")
 	case strings.Contains(msg, "dial tcp 127.0.0.1:7000: connectex: No connection could be made because the target machine actively refused it."):
-		xl.Warnf("您尚未更改配置文件，请更改配置文件(frpc.ini)后再启动隧道。更改完后需要按Ctrl+S保存。")
+		xl.Warnf("您尚未更改配置文件，请更改配置文件(frpc.toml)后再启动隧道。更改完后需要按Ctrl+S保存。")
 	case strings.Contains(msg, "connectex: No connection could be made because the target machine actively refused it."):
 		xl.Warnf("此节点可能已离线，或您的网络连不上此节点，请更换节点后再启动。如若更换节点无用，请加入交流群询问。")
 	}
