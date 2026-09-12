@@ -1,0 +1,113 @@
+name: ci
+on:
+  push:
+    branches:
+    - master
+    - dev
+    tags:
+    - 'v*'
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  vet-test:
+    name: vet and test (frpc)
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    - uses: actions/setup-go@v6
+      with:
+        go-version: '1.25'
+        cache: false
+    - name: vet
+      run: go vet -tags noweb ./client/... ./cmd/frpc/... ./pkg/api/...
+    - name: test
+      run: go test -tags noweb -count=1 -timeout 300s ./client/... ./pkg/config/...
+  build:
+    name: build (frpc)
+    needs: vet-test
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v6
+    - uses: actions/setup-go@v6
+      with:
+        go-version: '1.25'
+        cache: false
+    - name: build frpc
+      run: CGO_ENABLED=0 go build -trimpath -tags noweb -o frpc-test-bin ./cmd/frpc/
+  cross-compile:
+    name: cross compile check
+    needs: vet-test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+        - {goos: windows, goarch: amd64, ext: .exe}
+        - {goos: windows, goarch: arm64, ext: .exe}
+        - {goos: linux, goarch: amd64, ext: ''}
+        - {goos: linux, goarch: arm64, ext: ''}
+        - {goos: darwin, goarch: amd64, ext: ''}
+        - {goos: darwin, goarch: arm64, ext: ''}
+    steps:
+    - uses: actions/checkout@v6
+    - uses: actions/setup-go@v6
+      with:
+        go-version: '1.25'
+        cache: false
+    - name: build frpc (${{ matrix.goos }}/${{ matrix.goarch }})
+      env:
+        CGO_ENABLED: 0
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
+      run: go build -trimpath -tags noweb -o frpc-check${{ matrix.ext }} ./cmd/frpc/
+  release:
+    name: release frpc
+    needs: vet-test
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+        - {goos: windows, goarch: amd64, ext: .exe, pkg: zip}
+        - {goos: windows, goarch: arm64, ext: .exe, pkg: zip}
+        - {goos: linux, goarch: amd64, ext: '', pkg: tar.gz}
+        - {goos: linux, goarch: arm64, ext: '', pkg: tar.gz}
+        - {goos: darwin, goarch: amd64, ext: '', pkg: tar.gz}
+        - {goos: darwin, goarch: arm64, ext: '', pkg: tar.gz}
+    steps:
+    - uses: actions/checkout@v6
+    - uses: actions/setup-go@v6
+      with:
+        go-version: '1.25'
+        cache: false
+    - uses: actions/setup-node@v6
+      with:
+        node-version: '22'
+    - name: build web assets
+      run: make frpc-web
+    - name: build frpc (${{ matrix.goos }}/${{ matrix.goarch }})
+      env:
+        CGO_ENABLED: 0
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
+      run: go build -trimpath -ldflags "-s -w" -tags frpc -o dist/frpc${{ matrix.ext }} ./cmd/frpc/
+    - name: package
+      run: |
+        mkdir -p packages
+        cp conf/frpc.toml conf/frpc_full_example.toml dist/
+        cd dist
+        if [ "${{ matrix.pkg }}" = "zip" ]; then
+          zip ../packages/frpc_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.goarch }}.zip frpc${{ matrix.ext }} frpc.toml frpc_full_example.toml
+        else
+          tar -czf ../packages/frpc_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz frpc${{ matrix.ext }} frpc.toml frpc_full_example.toml
+        fi
+    - name: publish to release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: packages/*
+        generate_release_notes: true
